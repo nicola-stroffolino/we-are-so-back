@@ -1,55 +1,70 @@
 using Godot;
 using System;
 
-public partial class Slicer : MeshInstance3D 
+public partial class Slicer : MeshInstance3D
 {
     [Export]
     public MeshInstance3D Obj { get; set; }
+    [Export]
+    public Material CrossSectionMaterial { get; set; }
 
     public override void _Ready()
     {
-        var meshInstance = Obj;
-        var transform = GlobalTransform;
+        var meshes = SliceMesh();
 
-        transform.Origin = meshInstance.ToLocal(transform.Origin);
-        transform.Basis.X = meshInstance.ToLocal(transform.Basis.X + meshInstance.GlobalPosition);
-        transform.Basis.Y = meshInstance.ToLocal(transform.Basis.Y + meshInstance.GlobalPosition);
-        transform.Basis.Z = meshInstance.ToLocal(transform.Basis.Z + meshInstance.GlobalPosition);
+        var mesh1 = (MeshInstance3D)Obj.Duplicate();
+        mesh1.Mesh = meshes[0];
+        mesh1.Name = "Fist Half";
+        mesh1.Position += (Vector3.Down + Vector3.Right + Vector3.Back) / 4f;
 
-        var meshes = SliceMesh(transform, meshInstance.Mesh);
-        // meshInstance.Mesh = meshes[0];
+        var mesh2 = (MeshInstance3D)Obj.Duplicate();
+        mesh2.Mesh = meshes[1];
+        mesh2.Name = "Second Half";
+        mesh2.Position += (Vector3.Up + Vector3.Left + Vector3.Forward) / 4f;
+
+        GetParent().CallDeferred(MethodName.RemoveChild, Obj);
+        GetParent().CallDeferred(MethodName.AddChild, mesh1);
+        GetParent().CallDeferred(MethodName.AddChild, mesh2);
+
     }
 
-    public Mesh[] SliceMesh(Transform3D sliceTransform, Mesh mesh, Material crossSectionMaterial = null)
+    public Mesh[] SliceMesh(Material crossSectionMaterial = null)
     {
-        CsgCombiner3D combiner = new();
-        CsgMesh3D objCsg = new()
-        {   
-            Name = "MAIN MESH",
-            Mesh = mesh
+        CsgCombiner3D combiner = new()
+        {
+            Name = "Combiner",
+            TopLevel = true
         };
+        CsgMesh3D objCsg = new()
+        {
+            Name = "Obj Clone",
+            Mesh = Obj.Mesh
+        };
+
         CsgMesh3D slicerCsg = new()
         {
+            Name = "Slicer Box",
             Mesh = new BoxMesh()
+            {
+                Material = CrossSectionMaterial
+            },
+            Transform = this.Transform
         };
-        (slicerCsg.Mesh as BoxMesh).Material = crossSectionMaterial;
 
         AddChild(combiner);
         combiner.AddChild(objCsg);
         combiner.AddChild(slicerCsg);
-        slicerCsg.Transform = sliceTransform;
 
         var maxAt = -Vector3.Inf;
         var minAt = Vector3.Inf;
-        foreach (var v in mesh.GetFaces())
+        foreach (var v in objCsg.Mesh.GetFaces())
         {
-            var lv = slicerCsg.ToLocal(v);
+            var lv = slicerCsg.ToLocal(v); // i understand it, i cannot explain it, good luck future me
             maxAt = maxAt.Max(lv);
             minAt = minAt.Min(lv);
-            // GD.Print(v);
         }
-        minAt.Z = 0;
-        slicerCsg.Position = slicerCsg.ToGlobal((maxAt + minAt) / 2f);
+        minAt.Y = 0;
+        slicerCsg.Position = slicerCsg.ToGlobal((maxAt + minAt) / 2f); // i understand it, i cannot explain it, good luck future me
         (slicerCsg.Mesh as BoxMesh).Size = maxAt - minAt;
 
         Mesh outMesh = null, outMesh2 = null;
@@ -61,7 +76,7 @@ public partial class Slicer : MeshInstance3D
 
         slicerCsg.Operation = CsgShape3D.OperationEnum.Intersection;
         combiner.Call("_update_shape");
-	    meshes = combiner.GetMeshes();
+        meshes = combiner.GetMeshes();
         if (meshes is not null) outMesh2 = (Mesh)meshes[1];
 
         combiner.Free();
